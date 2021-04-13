@@ -148,18 +148,19 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 
 				PatchDwords(peImage, ref methodsDataReader, patchCount);
 				bool oldCode = !IsNewer45Decryption(encryptedResource.Method);
+				bool isUsingOffset = !IsUsingRva(encryptedResource.Method);
 				while (methodsDataReader.Position < methodsData.Length - 1) {
-					uint rva = methodsDataReader.ReadUInt32();
+					uint rva = (uint) methodsDataReader.ReadInt32();
 					int size;
 					if (oldCode) {
-						methodsDataReader.ReadUInt32();	// token, unknown, or index
+						methodsDataReader.ReadInt32();	// token, unknown, or index
 						size = methodsDataReader.ReadInt32();
 					}
 					else
 						size = methodsDataReader.ReadInt32() * 4;
 
 					var newData = methodsDataReader.ReadBytes(size);
-					if (unpackedNativeFile)
+					if (unpackedNativeFile && isUsingOffset)
 						peImage.DotNetSafeWriteOffset(rva, newData);
 					else
 						peImage.DotNetSafeWrite(rva, newData);
@@ -264,7 +265,35 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 				var call = instrs[i + 4];
 				if (call.OpCode.Code != Code.Call)
 					continue;
-				if (!DotNetUtils.IsPinvokeMethod(call.Operand as MethodDef, "kernel32", "VirtualProtect"))
+
+				return true;
+			}
+			return false;
+		}
+
+		public static bool IsUsingRva(MethodDef method) {
+			if (method?.Body == null)
+				return false;
+
+			var instrs = method.Body.Instructions;
+			for (int i = 0; i < instrs.Count; i++) {
+				if (instrs[i].OpCode != OpCodes.Ldloca_S)
+					continue;
+				if (instrs[i + 1].OpCode != OpCodes.Ldsfld)
+					continue;
+				if (instrs[i + 2].OpCode != OpCodes.Ldloc_S)
+					continue;
+				if (instrs[i + 3].OpCode != OpCodes.Conv_I8)
+					continue;
+				if (instrs[i + 4].OpCode != OpCodes.Add)
+					continue;
+				if (instrs[i + 5].OpCode != OpCodes.Ldloc_S)
+					continue;
+				if (instrs[i + 6].OpCode != OpCodes.Conv_I8)
+					continue;
+				if (instrs[i + 7].OpCode != OpCodes.Sub)
+					continue;
+				if (instrs[i + 8].OpCode.Code != Code.Call)
 					continue;
 
 				return true;
